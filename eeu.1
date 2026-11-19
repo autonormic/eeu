@@ -27,7 +27,12 @@ The command
 is the same as
 .I eeu,
 but restricted to editing the named file (no file operations, or shell escapes
-are allowed).
+are allowed). This restriction is an editor-level convenience mode, not an
+operating-system security boundary.
+.PP
+When saving, eeu writes to a temporary file in the destination directory and
+renames it over the destination only after the write succeeds. A final
+symbolic link and non-regular destination are rejected.
 .PP
 An editor with similar user-friendly qualities but more features is available
 and is called

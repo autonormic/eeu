@@ -56,11 +56,18 @@
 char *ee_copyright_message = 
 "Copyright (c) 1986, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 2009 Hugh Mahon ";
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
 #ifndef _XOPEN_SOURCE_EXTENDED
 #define _XOPEN_SOURCE_EXTENDED 1
 #endif
 #include "ee_version.h"
 #include "ee_utf8.h"
+#include "ee_core.h"
 
 char *version = "@(#) eeu, version "  EE_VERSION  " (UTF-8, Russian NLS)";
 
@@ -201,11 +208,11 @@ unsigned char d_char[5];	/* deleted UTF-8 code point (4 bytes + NUL) */
 unsigned char *d_word;		/* deleted word				*/
 unsigned char *d_line;		/* deleted line				*/
 char in_string[513];	/* buffer for reading a file		*/
-unsigned char *print_command = (unsigned char *)"lpr";	/* string to use for the print command 	*/
+static unsigned char default_print_command[] = "lpr";
+unsigned char *print_command = default_print_command;	/* string to use for the print command */
 unsigned char *start_at_line = NULL;	/* move to this line at start of session*/
 int in;				/* input character			*/
 
-FILE *temp_fp;			/* temporary file pointer		*/
 FILE *bit_bucket;		/* file pointer to /dev/null		*/
 
 char *table[] = { 
@@ -568,6 +575,8 @@ main(int argc, char *argv[])
 	signal(SIGSEGV, SIG_DFL);
 	signal(SIGINT, edit_abort);
 	d_word = malloc(150);
+	if (d_word == NULL)
+		err(1, "malloc");
 	*d_word = '\0';
 	d_line = NULL;
 	dlt_line = txtalloc();
@@ -575,6 +584,8 @@ main(int argc, char *argv[])
 	dlt_line->line_length = 0;
 	curr_line = first_line = txtalloc();
 	curr_line->line = point = malloc(10);
+	if (curr_line->line == NULL)
+		err(1, "malloc");
 	curr_line->line_length = 1;
 	curr_line->max_length = 10;
 	curr_line->prev_line = NULL;
@@ -691,23 +702,18 @@ main(int argc, char *argv[])
 unsigned char *
 resiz_line(int factor, struct text *rline, int rpos)
 {
-	unsigned char *rpoint;
-	int resiz_var;
- 
-	rline->max_length += factor;
 	unsigned char *new_line;
 	int new_length;
 
-	new_length = rline->max_length + factor;
+	new_length = ee_resize_capacity(rline->max_length, factor, rpos);
+	if (new_length < 0)
+		errx(1, "invalid line buffer resize");
 	new_line = realloc(rline->line, (size_t)new_length);
 	if (new_line == NULL)
 		err(1, "realloc");
 	rline->line = new_line;
 	rline->max_length = new_length;
-	rpoint = new_line;
-	for (resiz_var = 1; resiz_var < rpos; resiz_var++)
-		rpoint++;
-	return (rpoint);
+	return (new_line + (rpos - 1));
 }
 
 /* insert character into line */
@@ -1162,14 +1168,24 @@ insert_line(int disp)
 struct text *
 txtalloc(void)
 {
-	return((struct text *) malloc(sizeof( struct text)));
+	struct text *line;
+
+	line = calloc(1, sizeof(*line));
+	if (line == NULL)
+		err(1, "calloc");
+	return (line);
 }
 
 /* allocate space for file name list node */
 struct files *
 name_alloc(void)
 {
-	return((struct files *) malloc(sizeof( struct files)));
+	struct files *file;
+
+	file = calloc(1, sizeof(*file));
+	if (file == NULL)
+		err(1, "calloc");
+	return (file);
 }
 
 /* move to next word in string		*/
@@ -1214,7 +1230,7 @@ control(void)
 	if (in == 1)		/* control a	*/
 	{
 		string = get_string(ascii_code_str, TRUE);
-		if (*string != '\0')
+		if (string != NULL && *string != '\0')
 		{
 			in = atoi(string);
 			wmove(text_win, scr_vert, (scr_horz - horiz_offset));
@@ -1322,7 +1338,7 @@ emacs_control(void)
 	else if (in == 15)	/* control o	*/
 	{
 		string = get_string(ascii_code_str, TRUE);
-		if (*string != '\0')
+		if (string != NULL && *string != '\0')
 		{
 			in = atoi(string);
 			wmove(text_win, scr_vert, (scr_horz - horiz_offset));
@@ -1660,17 +1676,25 @@ function_key(void)
 	}
 }
 
-void 
+void
 print_buffer(void)
 {
-	char buffer[256];
+	char *buffer;
+	size_t length;
 
-	sprintf(buffer, ">!%s", print_command);
+	length = strlen((const char *)print_command);
+	if (length > (size_t)-1 - 3)
+		errx(1, "print command is too long");
+	buffer = malloc(length + 3);
+	if (buffer == NULL)
+		err(1, "malloc");
+	(void)snprintf(buffer, length + 3, ">!%s", print_command);
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
 	wprintw(com_win, printer_msg_str, print_command);
 	wrefresh(com_win);
 	command(buffer);
+	free(buffer);
 }
 
 void 
@@ -1729,8 +1753,17 @@ command(char *cmd_str1)
 		if (*cmd_str == '\0')
 		{
 			cmd_str = cmd_str2 = get_string(file_write_prompt_str, TRUE);
+			if (cmd_str == NULL)
+				return;
 		}
 		tmp_file = resolve_name(cmd_str);
+		if (tmp_file == NULL) {
+			wprintw(com_win, create_file_fail_msg, cmd_str);
+			wrefresh(com_win);
+			if (cmd_str2 != NULL)
+				free(cmd_str2);
+			return;
+		}
 		write_file(tmp_file, 1);
 		if (tmp_file != cmd_str)
 			free(tmp_file);
@@ -1745,10 +1778,20 @@ command(char *cmd_str1)
 		if (*cmd_str == '\0')
 		{
 			cmd_str = cmd_str2 = get_string(file_read_prompt_str, TRUE);
+			if (cmd_str == NULL)
+				return;
 		}
 		tmp_file = cmd_str;
 		recv_file = TRUE;
 		tmp_file = resolve_name(cmd_str);
+		if (tmp_file == NULL) {
+			recv_file = FALSE;
+			wprintw(com_win, cant_open_msg, cmd_str);
+			wrefresh(com_win);
+			if (cmd_str2 != NULL)
+				free(cmd_str2);
+			return;
+		}
 		check_fp();
 		if (tmp_file != cmd_str)
 			free(tmp_file);
@@ -2221,6 +2264,9 @@ check_fp(void)
 	}
 	else
 		get_file(tmp_file);
+	if (close(get_fd) == -1 && errno != EINTR)
+		wprintw(com_win, "close: %s", strerror(errno));
+	get_fd = -1;
 
 	recv_file = FALSE;
 	line_num = curr_line->line_number;
@@ -2290,9 +2336,17 @@ get_file(char *file_name)
 	else
 		append = TRUE;
 	can_read = FALSE;		/* test if file has any characters  */
-	while (((length = read(get_fd, in_string, 512)) != 0) && (length != -1))
-	{
-		can_read = TRUE;  /* if set file has at least 1 character   */
+	for (;;) {
+		length = (int)read(get_fd, in_string, 512);
+		if (length == 0)
+			break;
+		if (length < 0) {
+			if (errno == EINTR)
+				continue;
+			wprintw(com_win, "read: %s", strerror(errno));
+			break;
+		}
+		can_read = TRUE;
 		get_line(length, in_string, &append);
 	}
 	if ((can_read) && (curr_line->line_length == 1))
@@ -2414,40 +2468,63 @@ draw_screen()		/* redraw the screen from current postion	*/
 }
 
 /* prepare to exit edit session	*/
-void 
+void
 finish(void)
 {
 	char *file_name = in_file_name;
+	int owns_name = FALSE;
+
+	if (restrict_mode())
+		return;
 
 	/*
-	 |	changes made here should be reflected in the 'save' 
+	 |	changes made here should be reflected in the 'save'
 	 |	portion of file_op()
 	 */
 
-	if ((file_name == NULL) || (*file_name == '\0'))
+	if ((file_name == NULL) || (*file_name == '\0')) {
 		file_name = get_string(save_file_name_prompt, TRUE);
+		owns_name = TRUE;
+	}
 
-	if ((file_name == NULL) || (*file_name == '\0'))
-	{
+	if ((file_name == NULL) || (*file_name == '\0')) {
 		wmove(com_win, 0, 0);
 		wprintw(com_win, "%s", file_not_saved_msg);
 		wclrtoeol(com_win);
 		wrefresh(com_win);
 		clear_com_win = TRUE;
+		if (owns_name)
+			free(file_name);
 		return;
 	}
 
 	tmp_file = resolve_name(file_name);
-	if (tmp_file != file_name)
-	{
-		free(file_name);
+	if (tmp_file == NULL) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, create_file_fail_msg, file_name);
+		wrefresh(com_win);
+		if (owns_name)
+			free(file_name);
+		return;
+	}
+	if (tmp_file != file_name) {
+		if (owns_name)
+			free(file_name);
 		file_name = tmp_file;
+		owns_name = TRUE;
 	}
 
-	if (write_file(file_name, 1))
-	{
+	if (write_file(file_name, 1)) {
+		if (in_file_name != file_name) {
+			free(in_file_name);
+			in_file_name = file_name;
+			owns_name = FALSE;
+		}
 		text_changes = FALSE;
 		quit(0);
+	} else if (owns_name) {
+		free(file_name);
 	}
 }
 
@@ -2462,10 +2539,14 @@ quit(int noverify)
 	if ((text_changes) && (!noverify))
 	{
 		ans = get_string(changes_made_prompt, TRUE);
+		if (ans == NULL)
+			return (0);
 		if (toupper((unsigned char)*ans) == toupper((unsigned char)*yes_char))
 			text_changes = FALSE;
-		else
-			return(0);
+		else {
+			free(ans);
+			return (0);
+		}
 		free(ans);
 	}
 	if (top_of_stack == NULL)
@@ -2519,78 +2600,191 @@ delete_text(void)
 	position = 1;
 }
 
-int 
+int
 write_file(char *file_name, int warn_if_exists)
 {
-	char cr;
 	char *tmp_point;
+	char *temp_name = NULL;
+	const char *slash;
 	struct text *out_line;
+	FILE *save_fp = NULL;
+	struct stat file_stat, temp_stat;
+	mode_t create_mode, mask;
+	size_t dir_length, temp_length;
 	int lines, charac;
 	int temp_pos;
+	int fd = -1;
+	int exists = FALSE;
+	int io_error = FALSE;
 	int write_flag = TRUE;
+
+	if (restricted) {
+		restrict_mode();
+		return (FALSE);
+	}
+	if (file_name == NULL || *file_name == '\0')
+		return (FALSE);
 
 	charac = lines = 0;
 	if (warn_if_exists &&
-	    ((in_file_name == NULL) || strcmp(in_file_name, file_name)))
-	{
-		if ((temp_fp = fopen(file_name, "r")))
-		{
-			tmp_point = get_string(file_exists_prompt, TRUE);
-			if (toupper((unsigned char)*tmp_point) == toupper((unsigned char)*yes_char))
-				write_flag = TRUE;
-			else 
-				write_flag = FALSE;
-			fclose(temp_fp);
-			free(tmp_point);
-		}
-	}
-
-	clear_com_win = TRUE;
-
-	if (write_flag)
-	{
-		if ((temp_fp = fopen(file_name, "w")) == NULL)
-		{
-			clear_com_win = TRUE;
-			wmove(com_win,0,0);
-			wclrtoeol(com_win);
-			wprintw(com_win, create_file_fail_msg, file_name);
-			wrefresh(com_win);
-			return(FALSE);
-		}
-		else
-		{
-			wmove(com_win,0,0);
-			wclrtoeol(com_win);
-			wprintw(com_win, writing_file_msg, file_name);
-			wrefresh(com_win);
-			cr = '\n';
-			out_line = first_line;
-			while (out_line != NULL)
-			{
-				temp_pos = 1;
-				tmp_point= out_line->line;
-				while (temp_pos < out_line->line_length)
-				{
-					putc(*tmp_point, temp_fp);
-					tmp_point++;
-					temp_pos++;
-				}
-				charac += out_line->line_length;
-				out_line = out_line->next_line;
-				putc(cr, temp_fp);
-				lines++;
+	    ((in_file_name == NULL) || strcmp((char *)in_file_name, file_name))) {
+		if (lstat(file_name, &file_stat) == 0) {
+			if (!S_ISREG(file_stat.st_mode)) {
+				errno = EINVAL;
+				goto open_error;
 			}
-			fclose(temp_fp);
-			wmove(com_win,0,0);
-			wclrtoeol(com_win);
-			wprintw(com_win, file_written_msg, file_name, lines, charac);
-			wrefresh(com_win);
-			return(TRUE);
+			tmp_point = get_string(file_exists_prompt, TRUE);
+			if (tmp_point == NULL)
+				write_flag = FALSE;
+			else {
+				write_flag = (toupper((unsigned char)*tmp_point) ==
+				    toupper((unsigned char)*yes_char));
+				free(tmp_point);
+			}
+		} else if (errno != ENOENT) {
+			goto open_error;
 		}
 	}
-	else
-		return(FALSE);
+	clear_com_win = TRUE;
+	if (!write_flag)
+		return (FALSE);
+
+	/*
+	 * Inspect the destination without following a final symlink.  Save to a
+	 * same-directory temporary file and rename it over the destination only
+	 * after all bytes have been written and synced.  Thus a failed save leaves
+	 * the previous file intact and cannot redirect a privileged write through
+	 * a swapped final-component symlink.
+	 */
+	if (lstat(file_name, &file_stat) == 0) {
+		if (!S_ISREG(file_stat.st_mode)) {
+			errno = EINVAL;
+			goto open_error;
+		}
+		exists = TRUE;
+		create_mode = file_stat.st_mode & 0777;
+	} else {
+		if (errno != ENOENT)
+			goto open_error;
+		mask = umask(0);
+		(void)umask(mask);
+		create_mode = 0666 & ~mask;
+	}
+
+	slash = strrchr(file_name, '/');
+	if (slash == NULL) {
+		temp_name = strdup(".eeu.XXXXXX");
+	} else if (slash == file_name) {
+		temp_name = strdup("/.eeu.XXXXXX");
+	} else {
+		dir_length = (size_t)(slash - file_name);
+		temp_length = dir_length + sizeof("/.eeu.XXXXXX");
+		temp_name = malloc(temp_length);
+		if (temp_name != NULL) {
+			memcpy(temp_name, file_name, dir_length);
+			memcpy(temp_name + dir_length, "/.eeu.XXXXXX",
+			    sizeof("/.eeu.XXXXXX"));
+		}
+	}
+	if (temp_name == NULL)
+		goto open_error;
+	fd = mkstemp(temp_name);
+	if (fd == -1)
+		goto open_error;
+
+	if (fstat(fd, &temp_stat) == -1)
+		io_error = TRUE;
+	if (exists && !io_error &&
+	    (temp_stat.st_uid != file_stat.st_uid ||
+	    temp_stat.st_gid != file_stat.st_gid) &&
+	    fchown(fd, file_stat.st_uid, file_stat.st_gid) == -1)
+		io_error = TRUE;
+	if (io_error)
+		goto write_error;
+	if (fchmod(fd, create_mode) == -1)
+		io_error = TRUE;
+	if (io_error)
+		goto write_error;
+	save_fp = fdopen(fd, "w");
+	if (save_fp == NULL) {
+		close(fd);
+		fd = -1;
+		goto write_error;
+	}
+	fd = -1;
+
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, writing_file_msg, file_name);
+	wrefresh(com_win);
+	out_line = first_line;
+	while (out_line != NULL) {
+		temp_pos = 1;
+		tmp_point = (char *)out_line->line;
+		while (temp_pos < out_line->line_length) {
+			if (putc((unsigned char)*tmp_point, save_fp) == EOF)
+				io_error = TRUE;
+			tmp_point++;
+			temp_pos++;
+		}
+		if (out_line->line_length > INT_MAX - charac)
+			io_error = TRUE;
+		else
+			charac += out_line->line_length;
+		out_line = out_line->next_line;
+		if (putc('\n', save_fp) == EOF)
+			io_error = TRUE;
+		if (lines < INT_MAX)
+			lines++;
+		else
+			io_error = TRUE;
+	}
+	if (fflush(save_fp) == EOF || ferror(save_fp) ||
+	    fsync(fileno(save_fp)) == -1)
+		io_error = TRUE;
+	if (fclose(save_fp) == EOF)
+		io_error = TRUE;
+	save_fp = NULL;
+
+	if (io_error)
+		goto write_error;
+	if (rename(temp_name, file_name) == -1)
+		goto write_error;
+	free(temp_name);
+
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, file_written_msg, file_name, lines, charac);
+	wrefresh(com_win);
+	return (TRUE);
+
+open_error:
+	if (fd != -1)
+		close(fd);
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, create_file_fail_msg, file_name);
+	wrefresh(com_win);
+	free(temp_name);
+	return (FALSE);
+
+write_error:
+	if (fd != -1) {
+		close(fd);
+		fd = -1;
+	}
+	if (save_fp != NULL) {
+		fclose(save_fp);
+		save_fp = NULL;
+	}
+	if (temp_name != NULL)
+		unlink(temp_name);
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, create_file_fail_msg, file_name);
+	wrefresh(com_win);
+	free(temp_name);
+	return (FALSE);
 }
 
 /* search for string in srch_str */
@@ -3817,8 +4011,14 @@ file_op(int arg)
 	if (arg == READ_FILE)
 	{
 		string = get_string(file_read_prompt_str, TRUE);
-		recv_file = TRUE;
+		if (string == NULL)
+			return (0);
 		tmp_file = resolve_name(string);
+		if (tmp_file == NULL) {
+			free(string);
+			return (0);
+		}
+		recv_file = TRUE;
 		check_fp();
 		if (tmp_file != string)
 			free(tmp_file);
@@ -3827,7 +4027,13 @@ file_op(int arg)
 	else if (arg == WRITE_FILE)
 	{
 		string = get_string(file_write_prompt_str, TRUE);
+		if (string == NULL)
+			return (0);
 		tmp_file = resolve_name(string);
+		if (tmp_file == NULL) {
+			free(string);
+			return (0);
+		}
 		write_file(tmp_file, 1);
 		if (tmp_file != string)
 			free(tmp_file);
@@ -3859,6 +4065,11 @@ file_op(int arg)
 		if (!flag)
 		{
 			tmp_file = resolve_name(string);
+			if (tmp_file == NULL) {
+				if (!flag)
+					free(string);
+				return (0);
+			}
 			if (tmp_file != string)
 			{
 				free(string);
@@ -4177,37 +4388,44 @@ unsigned char *init_name[3] = {
 	};
 
 /* check for init file and read it if it exists	*/
-void 
+void
 ee_init(void)
 {
 	FILE *init_file;
 	unsigned char *string;
 	unsigned char *str1;
-	unsigned char *str2;
 	char *home;
 	int counter;
 	int temp_int;
+	int line_status;
 
-	string = getenv("HOME");
+	string = (unsigned char *)getenv("HOME");
 	if (string == NULL)
-		string = "/tmp";
-	str1 = home = malloc(strlen(string)+10);
-	strcpy(home, string);
+		string = (unsigned char *)"/tmp";
+	home = malloc(strlen((char *)string) + sizeof("/.init.ee"));
+	if (home == NULL)
+		err(1, "malloc");
+	strcpy(home, (char *)string);
 	strcat(home, "/.init.ee");
-	init_name[1] = home;
+	init_name[1] = (unsigned char *)home;
 	string = malloc(512);
+	if (string == NULL)
+		err(1, "malloc");
 
 	for (counter = 0; counter < 3; counter++)
 	{
-		if (!(access(init_name[counter], 4)))
+		if (init_name[counter] == NULL ||
+		    access((char *)init_name[counter], R_OK) != 0)
+			continue;
+		init_file = fopen((char *)init_name[counter], "r");
+		if (init_file == NULL)
+			continue;
+		while ((line_status = ee_read_config_line(init_file,
+		    (char *)string, 512)) != 0)
 		{
-			init_file = fopen(init_name[counter], "r");
-			while ((str2 = fgets(string, 512, init_file)) != NULL)
-			{
-				str1 = str2 = string;
-				while (*str2 != '\n')
-					str2++;
-				*str2 = '\0';
+			if (line_status < 0)
+				continue;
+			str1 = string;
 
 				if (unique_test(string, init_strings) != 1)
 					continue;
@@ -4244,8 +4462,17 @@ ee_init(void)
 				else if (compare(str1, PRINTCOMMAND, FALSE))
 				{
 					str1 = next_word(str1);
-					print_command = malloc(strlen(str1)+1);
-					strcpy(print_command, str1);
+					{
+						unsigned char *new_command;
+
+						new_command = (unsigned char *)malloc(strlen((char *)str1) + 1);
+						if (new_command == NULL)
+							err(1, "malloc");
+						strcpy((char *)new_command, (char *)str1);
+						if (print_command != default_print_command)
+							free(print_command);
+						print_command = new_command;
+					}
 				}
 				else if (compare(str1, RIGHTMARGIN, FALSE))
 				{
@@ -4285,103 +4512,147 @@ ee_init(void)
  |	Save current configuration to .init.ee file in the current directory.
  */
 
-void 
-dump_ee_conf(void)	
+void
+dump_ee_conf(void)
 {
-	FILE *init_file;
+	FILE *init_file = NULL;
 	FILE *old_init_file = NULL;
 	char *file_name = ".init.ee";
-	char *home_dir =  "~/.init.ee";
+	char *home_dir = "~/.init.ee";
 	char buffer[512];
+	char *backup_name = NULL;
+	char *resolved_name = NULL;
 	struct stat buf;
 	char *string;
-	int length;
+	size_t length;
+	int fd = -1;
 	int option = 0;
+	int moved_old = FALSE;
+	int created_file = FALSE;
+	int io_error = FALSE;
 
 	if (restrict_mode())
-	{
 		return;
-	}
 
 	option = menu_op(config_dump_menu);
-
 	werase(com_win);
 	wmove(com_win, 0, 0);
-
-	if (option == 0)
-	{
+	if (option == 0) {
 		wprintw(com_win, "%s", conf_not_saved_msg);
 		wrefresh(com_win);
 		return;
 	}
-	else if (option == 2)
-		file_name = resolve_name(home_dir);
+	if (option == 2) {
+		resolved_name = resolve_name(home_dir);
+		if (resolved_name == NULL)
+			goto config_error;
+		file_name = resolved_name;
+	}
 
 	/*
-	 |	If a .init.ee file exists, move it to .init.ee.old.
+	 * Preserve the existing configuration as .old. Refuse symlinks and
+	 * special files; the new file is created exclusively without following
+	 * a final-component symlink.
 	 */
-
-	if (stat(file_name, &buf) != -1)
-	{
-		sprintf(buffer, "%s.old", file_name);
-		unlink(buffer);
-		link(file_name, buffer);
-		unlink(file_name);
-		old_init_file = fopen(buffer, "r");
+	if (lstat(file_name, &buf) == 0) {
+		if (!S_ISREG(buf.st_mode))
+			goto config_error;
+		length = strlen(file_name);
+		if (length > (size_t)-1 - sizeof(".old"))
+			goto config_error;
+		backup_name = malloc(length + sizeof(".old"));
+		if (backup_name == NULL)
+			err(1, "malloc");
+		(void)snprintf(backup_name, length + sizeof(".old"),
+		    "%s.old", file_name);
+		if (rename(file_name, backup_name) == -1)
+			goto config_error;
+		moved_old = TRUE;
+		old_init_file = fopen(backup_name, "r");
+		if (old_init_file == NULL)
+			goto config_error;
+	} else if (errno != ENOENT) {
+		goto config_error;
 	}
 
-	init_file = fopen(file_name, "w");
+	fd = open(file_name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0666);
+	if (fd == -1)
+		goto config_error;
+	created_file = TRUE;
+	if (fstat(fd, &buf) == -1 || !S_ISREG(buf.st_mode))
+		goto config_error;
+	init_file = fdopen(fd, "w");
 	if (init_file == NULL)
-	{
-		wprintw(com_win, "%s", conf_dump_err_msg);
-		wrefresh(com_win);
-		return;
-	}
+		goto config_error;
+	fd = -1;
 
-	if (old_init_file != NULL)
-	{
-		/*
-		 |	Copy non-configuration info into new .init.ee file.
-		 */
-		while ((string = fgets(buffer, 512, old_init_file)) != NULL)
-		{
+	if (old_init_file != NULL) {
+		while ((string = fgets(buffer, sizeof(buffer), old_init_file)) != NULL) {
 			length = strlen(string);
-			string[length - 1] = '\0';
-
-			if (unique_test(string, init_strings) == 1)
-			{
-				if (compare(string, Echo, FALSE))
-				{
-					fprintf(init_file, "%s\n", string);
-				}
+			if (length > 0 && string[length - 1] == '\n')
+				string[--length] = '\0';
+			if (unique_test(string, init_strings) == 1) {
+				if (compare(string, Echo, FALSE) &&
+				    fprintf(init_file, "%s\n", string) < 0)
+					io_error = TRUE;
+			} else if (fprintf(init_file, "%s\n", string) < 0) {
+				io_error = TRUE;
 			}
-			else
-				fprintf(init_file, "%s\n", string);
 		}
-
-		fclose(old_init_file);
+		if (ferror(old_init_file))
+			io_error = TRUE;
+		if (fclose(old_init_file) == EOF)
+			io_error = TRUE;
+		old_init_file = NULL;
 	}
 
-	fprintf(init_file, "%s\n", case_sen ? CASE : NOCASE);
-	fprintf(init_file, "%s\n", expand_tabs ? EXPAND : NOEXPAND);
-	fprintf(init_file, "%s\n", info_window ? INFO : NOINFO );
-	fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS );
-	fprintf(init_file, "%s\n", auto_format ? AUTOFORMAT : NOAUTOFORMAT );
-	fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command);
-	fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin);
-	fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT );
-	fprintf(init_file, "%s\n", eightbit ? EIGHTBIT : NOEIGHTBIT );
-	fprintf(init_file, "%s\n", emacs_keys_mode ? EMACS_string : NOEMACS_string );
+	if (fprintf(init_file, "%s\n", case_sen ? CASE : NOCASE) < 0 ||
+	    fprintf(init_file, "%s\n", expand_tabs ? EXPAND : NOEXPAND) < 0 ||
+	    fprintf(init_file, "%s\n", info_window ? INFO : NOINFO) < 0 ||
+	    fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS) < 0 ||
+	    fprintf(init_file, "%s\n", auto_format ? AUTOFORMAT : NOAUTOFORMAT) < 0 ||
+	    fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command) < 0 ||
+	    fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin) < 0 ||
+	    fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT) < 0 ||
+	    fprintf(init_file, "%s\n", eightbit ? EIGHTBIT : NOEIGHTBIT) < 0 ||
+	    fprintf(init_file, "%s\n", emacs_keys_mode ? EMACS_string :
+	    NOEMACS_string) < 0)
+		io_error = TRUE;
 
-	fclose(init_file);
+	if (fflush(init_file) == EOF || ferror(init_file) ||
+	    fsync(fileno(init_file)) == -1)
+		io_error = TRUE;
+	if (fclose(init_file) == EOF)
+		io_error = TRUE;
+	init_file = NULL;
+	if (io_error)
+		goto config_error;
 
+	free(backup_name);
 	wprintw(com_win, conf_dump_success_msg, file_name);
 	wrefresh(com_win);
+	if (resolved_name != NULL && resolved_name != home_dir)
+		free(resolved_name);
+	return;
 
-	if ((option == 2) && (file_name != home_dir))
-	{
-		free(file_name);
-	}
+config_error:
+	if (fd != -1)
+		close(fd);
+	if (init_file != NULL)
+		fclose(init_file);
+	if (old_init_file != NULL)
+		fclose(old_init_file);
+	if (created_file)
+		(void)unlink(file_name);
+	if (moved_old && backup_name != NULL)
+		(void)rename(backup_name, file_name);
+	free(backup_name);
+	if (resolved_name != NULL && resolved_name != home_dir)
+		free(resolved_name);
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, "%s", conf_dump_err_msg);
+	wrefresh(com_win);
 }
 
 /* echo the given string	*/
@@ -4891,124 +5162,7 @@ is_in_string(char *string, char *substring)
 char *
 resolve_name(char *name)
 {
-	char long_buffer[1024];
-	char short_buffer[128];
-	char *buffer;
-	char *slash;
-	char *tmp;
-	char *start_of_var;
-	int offset;
-	int index;
-	int counter;
-	struct passwd *user;
-
-	if (name[0] == '~') 
-	{
-		if (name[1] == '/')
-		{
-			index = getuid();
-			user = (struct passwd *) getpwuid(index);
-			slash = name + 1;
-		}
-		else
-		{
-			slash = strchr(name, '/');
-			if (slash == NULL) 
-				return(name);
-			*slash = '\0';
-			user = (struct passwd *) getpwnam((name + 1));
-			*slash = '/';
-		}
-		if (user == NULL) 
-		{
-			return(name);
-		}
-		buffer = malloc(strlen(user->pw_dir) + strlen(slash) + 1);
-		strcpy(buffer, user->pw_dir);
-		strcat(buffer, slash);
-	}
-	else
-		buffer = name;
-
-	if (is_in_string(buffer, "$"))
-	{
-		tmp = buffer;
-		index = 0;
-		
-		while ((*tmp != '\0') && (index < 1024))
-		{
-
-			while ((*tmp != '\0') && (*tmp != '$') && 
-				(index < 1024))
-			{
-				long_buffer[index] = *tmp;
-				tmp++;
-				index++;
-			}
-
-			if ((*tmp == '$') && (index < 1024))
-			{
-				counter = 0;
-				start_of_var = tmp;
-				tmp++;
-				if (*tmp == '{') /* } */	/* bracketed variable name */
-				{
-					tmp++;				/* { */
-					while ((*tmp != '\0') && 
-						(*tmp != '}') && 
-						(counter < 128))
-					{
-						short_buffer[counter] = *tmp;
-						counter++;
-						tmp++;
-					}			/* { */
-					if (*tmp == '}')
-						tmp++;
-				}
-				else
-				{
-					while ((*tmp != '\0') && 
-					       (*tmp != '/') && 
-					       (*tmp != '$') && 
-					       (counter < 128))
-					{
-						short_buffer[counter] = *tmp;
-						counter++;
-						tmp++;
-					}
-				}
-				short_buffer[counter] = '\0';
-				if ((slash = getenv(short_buffer)) != NULL)
-				{
-					offset = strlen(slash);
-					if ((offset + index) < 1024)
-						strcpy(&long_buffer[index], slash);
-					index += offset;
-				}
-				else
-				{
-					while ((start_of_var != tmp) && (index < 1024))
-					{
-						long_buffer[index] = *start_of_var;
-						start_of_var++;
-						index++;
-					}
-				}
-			}
-		}
-
-		if (index == 1024)
-			return(buffer);
-		else
-			long_buffer[index] = '\0';
-
-		if (name != buffer)
-			free(buffer);
-		buffer = malloc(index + 1);
-		strcpy(buffer, long_buffer);
-	}
-
-	return(buffer);
+	return (ee_resolve_name(name));
 }
 
 int

@@ -18,7 +18,7 @@ else
 LDLIBS += -lncursesw
 endif
 
-OBJS = ee.o ee_utf8.o
+OBJS = ee.o ee_utf8.o ee_core.o
 
 .PHONY: all test install clean
 all: eeu reeu $(NLS_CAT)
@@ -33,17 +33,22 @@ eeu: $(OBJS)
 reeu: eeu
 	ln -sf eeu reeu
 
-ee.o: ee.c ee_utf8.h ee_version.h
+ee.o: ee.c ee_utf8.h ee_version.h ee_core.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c ee.c -o ee.o
 
 ee_utf8.o: ee_utf8.c ee_utf8.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c ee_utf8.c -o ee_utf8.o
+
+ee_core.o: ee_core.c ee_core.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c ee_core.c -o ee_core.o
 
 test: $(NLS_CAT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. tests/test_ee_utf8.c ee_utf8.c -o tests/test_ee_utf8
 	LC_ALL=$(UTF8_LOCALE) ./tests/test_ee_utf8
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_ee_nls.c -o tests/test_ee_nls
 	NLSPATH="$(CURDIR)/nls/$(NLS_LOCALE)/%N" LC_ALL=$(UTF8_LOCALE) ./tests/test_ee_nls eeu
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_ee_core.c ee_core.c -o tests/test_ee_core
+	LC_ALL=$(UTF8_LOCALE) ./tests/test_ee_core
 
 install: eeu $(NLS_CAT)
 	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/man/man1
@@ -54,4 +59,4 @@ install: eeu $(NLS_CAT)
 	install -m 644 $(NLS_CAT) $(DESTDIR)$(PREFIX)/share/nls/$(NLS_LOCALE)/eeu
 
 clean:
-	rm -f $(OBJS) eeu reeu tests/test_ee_utf8 tests/test_ee_nls $(NLS_CAT)
+	rm -f $(OBJS) eeu reeu tests/test_ee_utf8 tests/test_ee_nls tests/test_ee_core $(NLS_CAT)

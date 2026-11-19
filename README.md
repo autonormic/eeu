@@ -52,6 +52,8 @@ make environments that have the `ncursesw` development headers and library.
 
 ## Build and install on FreeBSD
 
+Saving writes to a temporary file in the destination directory and replaces the destination only after the write and synchronization succeed. This protects an existing file from partial writes. A final-component symbolic link or non-regular destination is rejected; use the actual target path instead.
+
 From the project directory:
 
 ```sh
@@ -112,6 +114,8 @@ catalog cannot be found, the built-in English messages are used.
 
 ## Tests
 
+`make test` also runs core regression tests for buffer resizing, bounded `.init.ee` parsing, and environment/tilde path expansion.
+
 `make test` checks the UTF-8 helper module and opens the Russian message catalog
 by its basename (`eeu`) through `NLSPATH`, which is the same lookup mechanism
 used by the editor. The tests cover UTF-8 sequence validation, code-point
@@ -124,7 +128,7 @@ editing, and saving using the terminal emulator you normally use.
 
 ## Version and source
 
-This release is `eeu 1.0.0`. The upstream Easy Editor source version used as the
+This release is `eeu 1.0.1`. The upstream Easy Editor source version used as the
 base is `1.5.2`, from the FreeBSD 15.1 source archive supplied for this fork.
 See [Changes](Changes) for the release notes and [UPSTREAM.md](UPSTREAM.md) for
 provenance and attribution.

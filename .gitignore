@@ -3,4 +3,5 @@ eeu
 reeu
 tests/test_ee_utf8
 tests/test_ee_nls
+tests/test_ee_core
 nls/*/eeu

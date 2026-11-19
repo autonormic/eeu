@@ -1,3 +1,16 @@
+eeu 1.0.1 (2026-11-19)
+- fix line-buffer resizing when splitting long lines
+- reject overflowing or undersized line-buffer capacity calculations
+- safely parse .init.ee lines, including missing final newline and overlong lines
+- replace fixed-size path expansion buffers with dynamically sized storage
+- reject final-component symlinks and non-regular files when saving
+- check write, flush, sync, and close errors before reporting a successful save
+- enforce restricted mode in finish() and write_file()
+- close file descriptors after reading and retry interrupted reads
+- dynamically allocate print command buffers
+- safely back up and open the editor configuration file
+- add core regression tests for resizing, config parsing, and path expansion
+
 eeu 1.0.0 (2026-11-17)
 - first independently versioned eeu release based on FreeBSD 15.1 ee sources
 - UTF-8 input, display, cursor movement, deletion, prompts, and search
@@ -10,18 +23,18 @@ eeu 1.0.0 (2026-11-17)
 - default build/test locale follows NLS_LOCALE for FreeBSD systems configured for Russian
 
 version 1.5.0 (2/16/2009)
-- added display of line number, column, and lines from top to separator line 
+- added display of line number, column, and lines from top to separator line
   for info window
 - minor changes to reduce number of warnings when using -pedantic option
 
 version 1.4.7 (2/10/2009)
-- changed how strings are terminated from the old usage of NULL to the current 
+- changed how strings are terminated from the old usage of NULL to the current
   use of character zero, '\0'
-- changed the licensing since the Artistic License is now considered 
+- changed the licensing since the Artistic License is now considered
   restrictive
 
 version 1.4.6
-- modified new_curse.c to handle different subdirectory naming in terminfo 
+- modified new_curse.c to handle different subdirectory naming in terminfo
   directory; first noted on Mac OS 10.2
 
 version 1.4.5a (12/23/2001)
@@ -35,17 +48,15 @@ version 1.4.5 (12/15/2001)
   to change ee.c directly
 
 version 1.4.4 (8/17/2001)
-- added code to check if the parent process has died, and if so to exit 
+- added code to check if the parent process has died, and if so to exit
   gracefully
 
 version 1.4.3 (6/25/2001)
-- modified create.make and new_curse.c to allow defining TERMCAP file 
-  location (since some distributions move the file)
+- modified create.make and new_curse.c to allow defining TERMCAP file
+  location (since some distributions move the termcap file)
 - source directory now has version number attached to directory name
 
 version 1.4.2 (1/19/2001)
-- change to create.make script to add unistd.h to files to search for 
+- change to create.make script to add unistd.h to files to search for
   select() declaration
 - change to new_curse.c for proper raw mode operation
-
-
