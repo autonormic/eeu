@@ -4412,8 +4412,7 @@ ee_init(void)
 	if (string == NULL)
 		err(1, "malloc");
 
-	for (counter = 0; counter < 3; counter++)
-	{
+	for (counter = 0; counter < 3; counter++) {
 		if (init_name[counter] == NULL ||
 		    access((char *)init_name[counter], R_OK) != 0)
 			continue;
@@ -4421,91 +4420,74 @@ ee_init(void)
 		if (init_file == NULL)
 			continue;
 		while ((line_status = ee_read_config_line(init_file,
-		    (char *)string, 512)) != 0)
-		{
+		    (char *)string, 512)) != 0) {
 			if (line_status < 0)
 				continue;
 			str1 = string;
+			if (unique_test((char *)string, init_strings) != 1)
+				continue;
 
-				if (unique_test(string, init_strings) != 1)
-					continue;
+			if (compare((char *)str1, CASE, FALSE))
+				case_sen = TRUE;
+			else if (compare((char *)str1, NOCASE, FALSE))
+				case_sen = FALSE;
+			else if (compare((char *)str1, EXPAND, FALSE))
+				expand_tabs = TRUE;
+			else if (compare((char *)str1, NOEXPAND, FALSE))
+				expand_tabs = FALSE;
+			else if (compare((char *)str1, INFO, FALSE))
+				info_window = TRUE;
+			else if (compare((char *)str1, NOINFO, FALSE))
+				info_window = FALSE;
+			else if (compare((char *)str1, MARGINS, FALSE))
+				observ_margins = TRUE;
+			else if (compare((char *)str1, NOMARGINS, FALSE))
+				observ_margins = FALSE;
+			else if (compare((char *)str1, AUTOFORMAT, FALSE)) {
+				auto_format = TRUE;
+				observ_margins = TRUE;
+			} else if (compare((char *)str1, NOAUTOFORMAT, FALSE)) {
+				auto_format = FALSE;
+			} else if (compare((char *)str1, Echo, FALSE)) {
+				str1 = next_word(str1);
+				if (*str1 != '\0')
+					echo_string((char *)str1);
+			} else if (compare((char *)str1, PRINTCOMMAND, FALSE)) {
+				unsigned char *new_command;
 
-				if (compare(str1, CASE, FALSE))
-					case_sen = TRUE;
-				else if (compare(str1, NOCASE, FALSE))
-					case_sen = FALSE;
-				else if (compare(str1, EXPAND, FALSE))
-					expand_tabs = TRUE;
-				else if (compare(str1, NOEXPAND, FALSE))
-					expand_tabs = FALSE;
-				else if (compare(str1, INFO, FALSE))
-					info_window = TRUE;
-				else if (compare(str1, NOINFO, FALSE))
-					info_window = FALSE;   
-				else if (compare(str1, MARGINS, FALSE))
-					observ_margins = TRUE;
-				else if (compare(str1, NOMARGINS, FALSE))
-					observ_margins = FALSE;
-				else if (compare(str1, AUTOFORMAT, FALSE))
-				{
-					auto_format = TRUE;
-					observ_margins = TRUE;
+				str1 = next_word(str1);
+				new_command = (unsigned char *)malloc(strlen((char *)str1) + 1);
+				if (new_command == NULL)
+					err(1, "malloc");
+				strcpy((char *)new_command, (char *)str1);
+				if (print_command != default_print_command)
+					free(print_command);
+				print_command = new_command;
+			} else if (compare((char *)str1, RIGHTMARGIN, FALSE)) {
+				str1 = next_word(str1);
+				if (*str1 >= '0' && *str1 <= '9') {
+					temp_int = atoi((char *)str1);
+					if (temp_int > 0)
+						right_margin = temp_int;
 				}
-				else if (compare(str1, NOAUTOFORMAT, FALSE))
-					auto_format = FALSE;
-				else if (compare(str1, Echo, FALSE))
-				{
-					str1 = next_word(str1);
-					if (*str1 != '\0')
-						echo_string(str1);
-				}
-				else if (compare(str1, PRINTCOMMAND, FALSE))
-				{
-					str1 = next_word(str1);
-					{
-						unsigned char *new_command;
-
-						new_command = (unsigned char *)malloc(strlen((char *)str1) + 1);
-						if (new_command == NULL)
-							err(1, "malloc");
-						strcpy((char *)new_command, (char *)str1);
-						if (print_command != default_print_command)
-							free(print_command);
-						print_command = new_command;
-					}
-				}
-				else if (compare(str1, RIGHTMARGIN, FALSE))
-				{
-					str1 = next_word(str1);
-					if ((*str1 >= '0') && (*str1 <= '9'))
-					{
-						temp_int = atoi(str1);
-						if (temp_int > 0)
-							right_margin = temp_int;
-					}
-				}
-				else if (compare(str1, HIGHLIGHT, FALSE))
-					nohighlight = FALSE;
-				else if (compare(str1, NOHIGHLIGHT, FALSE))
-					nohighlight = TRUE;
-				else if (compare(str1, EIGHTBIT, FALSE))
-					eightbit = TRUE;
-				else if (compare(str1, NOEIGHTBIT, FALSE))
-				{
-					eightbit = FALSE;
-				}
-				else if (compare(str1, EMACS_string, FALSE))
-					emacs_keys_mode = TRUE;
-				else if (compare(str1, NOEMACS_string, FALSE))
-					emacs_keys_mode = FALSE;
-
+			} else if (compare((char *)str1, HIGHLIGHT, FALSE)) {
+				nohighlight = FALSE;
+			} else if (compare((char *)str1, NOHIGHLIGHT, FALSE)) {
+				nohighlight = TRUE;
+			} else if (compare((char *)str1, EIGHTBIT, FALSE)) {
+				eightbit = TRUE;
+			} else if (compare((char *)str1, NOEIGHTBIT, FALSE)) {
+				eightbit = FALSE;
+			} else if (compare((char *)str1, EMACS_string, FALSE)) {
+				emacs_keys_mode = TRUE;
+			} else if (compare((char *)str1, NOEMACS_string, FALSE)) {
+				emacs_keys_mode = FALSE;
 			}
-			fclose(init_file);
 		}
+		fclose(init_file);
 	}
 	free(string);
 	free(home);
-
 }
 
 /*
