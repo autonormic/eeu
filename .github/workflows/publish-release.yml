@@ -1,0 +1,61 @@
+name: publish-release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ee_version.h"
+      - ".github/workflows/publish-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'autonormic/eeu'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          version=$(sed -n 's/^#define EE_VERSION "\([^"]*\)".*/\1/p' ee_version.h)
+          if [ -z "$version" ]; then
+            echo "Could not read EE_VERSION from ee_version.h" >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub release $tag already exists; nothing to publish."
+            exit 0
+          fi
+
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          {
+            printf '# eeu %s\n\n' "$version"
+            printf 'Published from commit %s.\n\n' "$GITHUB_SHA"
+            awk -v heading="eeu $version (" '
+              index($0, heading) == 1 { active = 1 }
+              active && /^eeu [0-9]+\.[0-9]+\.[0-9]+ / && index($0, heading) != 1 { exit }
+              active { print }
+            ' Changes
+          } > "$notes_file"
+
+          if ! grep -q '^eeu ' "$notes_file"; then
+            echo "No matching release section found in Changes" >&2
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "eeu $version" \
+            --notes-file "$notes_file"
